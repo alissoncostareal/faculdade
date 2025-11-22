@@ -17,19 +17,18 @@ foreach ($signos->signo as $signo) {
     list($diaFim, $mesFim) = explode("/", (string)$signo->dataFim);
     list($diaNasc, $mesNasc) = explode("/", $dataFormatada);
 
-    // ajuste de ano
+    
     $anoAtual = date("Y");
 
     $inicio = DateTime::createFromFormat("d/m/Y", "$diaIni/$mesIni/$anoAtual");
     $fim = DateTime::createFromFormat("d/m/Y", "$diaFim/$mesFim/$anoAtual");
     $nasc = DateTime::createFromFormat("d/m/Y", "$diaNasc/$mesNasc/$anoAtual");
 
-    // caso o signo atravesse o ano (ex: Capricórnio)
     if ($fim < $inicio) {
-        // fim está no ano seguinte
+        
         $fim->modify("+1 year");
 
-        // se o nascimento for no começo do ano, ajuste também
+        
         if ($nasc < $inicio) {
             $nasc->modify("+1 year");
         }
