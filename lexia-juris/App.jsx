@@ -176,7 +176,7 @@ async function callDirectCloudAI(systemPrompt, userPrompt, jsonMode = false) {
           { role: 'user', content: userPrompt }
         ],
         temperature: 0.35,
-        max_tokens: 3200
+        max_tokens: Math.max(3500, userPrompt.includes('questões') ? 4500 : 3200)
       };
       if (jsonMode) body.response_format = { type: 'json_object' };
 
@@ -303,9 +303,10 @@ export default function App() {
   const [drawerDynamicQuiz, setDrawerDynamicQuiz] = useState(null);
 
   const [simTheme, setSimTheme] = useState('Direitos e Garantias Fundamentais (Art. 5º CF/88)');
-  const [simBanca, setSimBanca] = useState('Cebraspe / FGV');
+  const [simBanca, setSimBanca] = useState('Todas as bancas');
   const [simDifficulty, setSimDifficulty] = useState('Médio (Concurso/OAB)');
   const [simCount, setSimCount] = useState(5);
+  const [simQuestionsFilter, setSimQuestionsFilter] = useState('Todas');
   const [simLoading, setSimLoading] = useState(false);
   const [simQuizData, setSimQuizData] = useState(null);
   const [simAnswers, setSimAnswers] = useState({});
@@ -581,6 +582,7 @@ export default function App() {
     setSimQuizData(null);
     setSimAnswers({});
     setSimRevealed({});
+    setSimQuestionsFilter('Todas');
 
     const excerpt = `${activeArticle.key} - ${activeArticle.caput}\n${(activeArticle.incisos || []).slice(0, 10).map(i => `${i.num} - ${i.text}`).join('\n')}`;
     const targetTopic = simTheme || `${currentLaw?.shortTitle || 'CF/88'} • ${activeArticle.key}`;
@@ -604,13 +606,21 @@ export default function App() {
       } catch {}
 
       if (!quizPayload || !quizPayload.questions?.length) {
-        const sysPrompt = `Você é uma banca examinadora jurídica (${simBanca}). Retorne APENAS um objeto JSON válido com a estrutura:
+        const isAllBancas = simBanca === 'Todas as bancas' || simBanca === 'Todas';
+        const bancaPromptDesc = isAllBancas
+          ? 'uma comissão de bancas examinadoras jurídicas brasileiras (mesclando estilos conceituados: Cebraspe, FGV, FCC, Vunesp, etc.)'
+          : `uma banca examinadora jurídica (${simBanca})`;
+        const bancaFieldDesc = isAllBancas
+          ? 'Nome da Banca (ex: Cebraspe, FGV, FCC, Vunesp)'
+          : simBanca;
+
+        const sysPrompt = `Você é ${bancaPromptDesc}. Retorne APENAS um objeto JSON válido com a estrutura:
 {
   "topicSummary": "Resumo objetivo do tema.",
   "questions": [
     {
       "id": 1,
-      "banca": "${simBanca}",
+      "banca": "${bancaFieldDesc}",
       "articleRef": "Artigo correspondente",
       "statement": "Enunciado completo...",
       "options": ["A) ...", "B) ...", "C) ...", "D) ..."],
@@ -620,7 +630,7 @@ export default function App() {
     }
   ]
 }`;
-        const usrPrompt = `Gere ${simCount} questões inéditas nível "${simDifficulty}" sobre o tema "${targetTopic}" (${currentLaw?.shortTitle || 'CF/88'}). Base legal:\n${excerpt}`;
+        const usrPrompt = `Gere ${simCount} questões inéditas nível "${simDifficulty}" sobre o tema "${targetTopic}" (${currentLaw?.shortTitle || 'CF/88'})${isAllBancas ? ', variando os estilos entre diferentes bancas examinadoras (Cebraspe, FGV, FCC, Vunesp etc.) e indicando a banca examinadora no campo "banca" de cada questão' : ''}. Base legal:\n${excerpt}`;
         const rawJson = await callDirectCloudAI(sysPrompt, usrPrompt, true);
         quizPayload = JSON.parse(rawJson.replace(/```json|```/g, '').trim());
       }
@@ -663,6 +673,7 @@ export default function App() {
       ? [
           {
             ...questionObj,
+            banca: questionObj.banca || simBanca,
             chosen: chosenOption,
             lawTitle: currentLaw?.shortTitle || 'CF/88',
             date: new Date().toLocaleDateString('pt-BR')
@@ -737,6 +748,23 @@ export default function App() {
       return matchArea && matchSearch;
     });
   }, [catalog, libraryAreaFilter, librarySearch]);
+
+  const availableSimBancas = useMemo(() => {
+    if (!simQuizData?.questions?.length) return [];
+    const set = new Set(['Todas']);
+    simQuizData.questions.forEach(q => {
+      const b = (q.banca || simBanca || '').trim();
+      if (b) set.add(b);
+    });
+    return Array.from(set);
+  }, [simQuizData, simBanca]);
+
+  const filteredSimQuestions = useMemo(() => {
+    if (!simQuizData?.questions) return [];
+    const indexed = simQuizData.questions.map((q, i) => ({ ...q, originalIdx: i }));
+    if (simQuestionsFilter === 'Todas') return indexed;
+    return indexed.filter(q => (q.banca || simBanca || '').trim() === simQuestionsFilter);
+  }, [simQuizData, simQuestionsFilter, simBanca]);
 
   const headerTitle = {
     'codigos-biblioteca': 'Biblioteca',
@@ -1191,10 +1219,14 @@ export default function App() {
                     onChange={e => setSimBanca(e.target.value)}
                     className="w-full p-2 rounded-xl bg-stone-50 border border-stone-200 text-xs text-stone-800"
                   >
-                    <option>Cebraspe / FGV</option>
-                    <option>FGV / OAB</option>
-                    <option>FCC</option>
-                    <option>Vunesp</option>
+                    <option value="Todas as bancas">Todas as bancas</option>
+                    <option value="Cebraspe / FGV">Cebraspe / FGV</option>
+                    <option value="FGV / OAB">FGV / OAB</option>
+                    <option value="FCC">FCC</option>
+                    <option value="Vunesp">Vunesp</option>
+                    <option value="Cesgranrio">Cesgranrio</option>
+                    <option value="Quadrix">Quadrix</option>
+                    <option value="IBFC">IBFC</option>
                   </select>
                 </div>
                 <div>
@@ -1223,6 +1255,12 @@ export default function App() {
                     <option value={3}>3 questões</option>
                     <option value={5}>5 questões</option>
                     <option value={8}>8 questões</option>
+                    <option value={10}>10 questões</option>
+                    <option value={12}>12 questões</option>
+                    <option value={15}>15 questões</option>
+                    <option value={20}>20 questões</option>
+                    <option value={25}>25 questões</option>
+                    <option value={30}>30 questões</option>
                   </select>
                 </div>
               </div>
@@ -1245,7 +1283,33 @@ export default function App() {
                   </div>
                 )}
 
-                {(simQuizData.questions || []).map((q, qIdx) => {
+                {availableSimBancas.length > 2 && (
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+                    <span className="text-[11px] font-medium text-stone-500 shrink-0">Filtrar banca:</span>
+                    {availableSimBancas.map(b => {
+                      const count = b === 'Todas'
+                        ? (simQuizData.questions || []).length
+                        : (simQuizData.questions || []).filter(q => (q.banca || simBanca || '').trim() === b).length;
+                      const isActive = simQuestionsFilter === b;
+                      return (
+                        <button
+                          key={b}
+                          onClick={() => setSimQuestionsFilter(b)}
+                          className={`px-3 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                            isActive
+                              ? 'bg-stone-900 text-white'
+                              : 'bg-stone-200/70 text-stone-700 hover:bg-stone-300/70'
+                          }`}
+                        >
+                          {b} ({count})
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {filteredSimQuestions.map(q => {
+                  const qIdx = q.originalIdx;
                   const chosen = simAnswers[qIdx];
                   const isRevealed = simRevealed[qIdx];
                   return (
@@ -1382,7 +1446,7 @@ export default function App() {
                   {progress.savedQuestions.map((sq, idx) => (
                     <div key={sq.id || idx} className="p-3 rounded-xl bg-stone-50 border border-stone-200/60 space-y-1 text-xs">
                       <span className="font-mono font-semibold text-stone-700">
-                        {sq.lawTitle} • {sq.articleRef}
+                        {sq.lawTitle} • {sq.articleRef}{sq.banca ? ` • ${sq.banca}` : ''}
                       </span>
                       <p className="text-stone-800">{sq.statement}</p>
                       <p className="text-stone-500">
